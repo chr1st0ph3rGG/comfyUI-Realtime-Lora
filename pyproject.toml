@@ -16,5 +16,5 @@ Issues = "https://github.com/ShootTheSound/comfyUI-Realtime-Lora/issues"
 
 [tool.comfy]
 PublisherId = "shootthesound"
-DisplayName = "-realtime-lora"
+DisplayName = "Realtime LoRA Toolkit"
 Icon = ""
