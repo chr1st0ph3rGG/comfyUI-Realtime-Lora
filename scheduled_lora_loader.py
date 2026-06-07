@@ -339,8 +339,8 @@ Use schedule_inv for complementary LoRA pairs (crossfade effect)."""
             if quantized:
                 print(f"[ScheduledLoRALoader] WARNING: strength scheduling is not supported on "
                       f"{quant_label} models (hooks crash on quantized layers) - applying the LoRA "
-                      f"at flat strength {strength} instead.")
-                model_out, _ = comfy.sd.load_lora_for_models(model, None, lora, strength, 0.0)
+                      f"at flat strength 1.0 instead.")
+                model_out, _ = comfy.sd.load_lora_for_models(model, None, lora, 1.0, 0.0)
                 return (model_out, positive, negative, effective_schedule, schedule_inv)
 
         if schedule:

@@ -1644,7 +1644,7 @@ def _create_combined_node_class(config: dict):
                     schedule_skipped_reason = quant_label
                     print(f"[{cfg['display_name']}] WARNING: strength scheduling is not supported "
                           f"on {quant_label} models (hooks crash on quantized layers) - applying "
-                          f"the LoRA at flat strength {strength} instead.")
+                          f"the LoRA at flat strength 1.0 instead.")
 
             if schedule and not schedule_skipped_reason:
                 # Use hook system for scheduling
@@ -1670,9 +1670,15 @@ def _create_combined_node_class(config: dict):
                 positive_out = comfy.hooks.set_hooks_for_conditioning(positive, hooks)
                 negative_out = comfy.hooks.set_hooks_for_conditioning(negative, hooks)
                 print(f"[{cfg['display_name']}] Hooks attached to conditioning")
+            elif schedule_skipped_reason:
+                # Schedule requested but skipped on a quantized model: apply at a
+                # flat strength of 1.0 (the schedule's base strength, matching the
+                # hook path's strength_model=1.0) rather than the (ignored) widget.
+                model_out, _ = comfy.sd.load_lora_for_models(
+                    model, None, filtered_lora, 1.0, 0.0
+                )
             else:
-                # Standard loading - apply LoRA directly to model at flat strength.
-                # Covers both "no schedule" and "schedule skipped on a quantized model".
+                # Standard loading (no schedule) - honor the strength widget.
                 model_out, _ = comfy.sd.load_lora_for_models(
                     model, None, filtered_lora, strength, 0.0
                 )
@@ -1700,7 +1706,7 @@ def _create_combined_node_class(config: dict):
                 info_lines.append(f"Schedule: {len(schedule)} keyframes (attached to conditioning)")
             elif schedule_skipped_reason:
                 info_lines.append(f"WARNING: strength schedule skipped - not supported on "
-                                  f"{schedule_skipped_reason} models; applied at flat strength {strength}")
+                                  f"{schedule_skipped_reason} models; applied at flat strength 1.0")
             if saved_path:
                 info_lines.append(f"Saved: {os.path.basename(saved_path)}")
 
