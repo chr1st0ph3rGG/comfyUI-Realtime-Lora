@@ -662,104 +662,6 @@
       "bgcolor": "#353"
     },
     {
-      "id": 68,
-      "type": "AnimaLoraTrainer",
-      "pos": [
-        -959.264626506245,
-        233.52787442764662
-      ],
-      "size": [
-        400,
-        612
-      ],
-      "flags": {},
-      "order": 13,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image_1",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": 137
-        },
-        {
-          "name": "caption_1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 141
-        },
-        {
-          "name": "image_2",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": 138
-        },
-        {
-          "name": "caption_2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 142
-        },
-        {
-          "name": "image_3",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": 139
-        },
-        {
-          "name": "caption_3",
-          "shape": 7,
-          "type": "STRING",
-          "link": 143
-        },
-        {
-          "name": "image_4",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": 140
-        },
-        {
-          "name": "caption_4",
-          "shape": 7,
-          "type": "STRING",
-          "link": 144
-        }
-      ],
-      "outputs": [
-        {
-          "name": "lora_path",
-          "type": "STRING",
-          "links": [
-            145
-          ]
-        }
-      ],
-      "properties": {
-        "aux_id": "chr1st0ph3rGG/comfyUI-Realtime-Lora",
-        "ver": "452808e541d5667b85022fe536ea6fc0de3e060e",
-        "Node name for S&R": "AnimaLoraTrainer"
-      },
-      "widgets_values": [
-        4,
-        "",
-        "~/sd-scripts/",
-        "anima/anima_baseV10.safetensors",
-        "qwen_image_vae_anima.safetensors",
-        "qwen_3_06b_base_anima.safetensors",
-        "",
-        500,
-        0.0005,
-        16,
-        "Max (1024px)",
-        "sigmoid",
-        1,
-        false,
-        true,
-        "AnnaBirthdayOutfit01",
-        ""
-      ]
-    },
-    {
       "id": 7,
       "type": "CLIPTextEncode",
       "pos": [
@@ -959,6 +861,104 @@
       "widgets_values": [
         "ComfyUI"
       ]
+    },
+    {
+      "id": 68,
+      "type": "AnimaLoraTrainer",
+      "pos": [
+        -959.264626506245,
+        233.52787442764662
+      ],
+      "size": [
+        400,
+        612
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 137
+        },
+        {
+          "name": "caption_1",
+          "shape": 7,
+          "type": "STRING",
+          "link": 141
+        },
+        {
+          "name": "image_2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 138
+        },
+        {
+          "name": "caption_2",
+          "shape": 7,
+          "type": "STRING",
+          "link": 142
+        },
+        {
+          "name": "image_3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 139
+        },
+        {
+          "name": "caption_3",
+          "shape": 7,
+          "type": "STRING",
+          "link": 143
+        },
+        {
+          "name": "image_4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 140
+        },
+        {
+          "name": "caption_4",
+          "shape": 7,
+          "type": "STRING",
+          "link": 144
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lora_path",
+          "type": "STRING",
+          "links": [
+            145
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "chr1st0ph3rGG/comfyUI-Realtime-Lora",
+        "ver": "452808e541d5667b85022fe536ea6fc0de3e060e",
+        "Node name for S&R": "AnimaLoraTrainer"
+      },
+      "widgets_values": [
+        4,
+        "",
+        "~/sd-scripts/",
+        "anima/anima_baseV10.safetensors",
+        "qwen_image_vae_anima.safetensors",
+        "qwen_3_06b_base_anima.safetensors",
+        "",
+        500,
+        0.0005,
+        16,
+        "Max (1024px)",
+        "sigmoid",
+        1,
+        false,
+        true,
+        "MyLora",
+        ""
+      ]
     }
   ],
   "links": [
@@ -1127,10 +1127,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.7972024500000015,
+      "scale": 1.5535220464768986,
       "offset": [
-        2201.2016066897927,
-        598.5010579240869
+        1473.7568458878045,
+        -165.68589442223413
       ]
     },
     "frontendVersion": "1.44.19",
