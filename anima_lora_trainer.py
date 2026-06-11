@@ -2,7 +2,7 @@
 Anima LoRA Trainer Node for ComfyUI
 
 Trains Anima LoRAs using kohya-ss/sd-scripts (anima_train_network.py).
-Anima is a DiT model by Circlestone Labs using a Qwen3-0.6B text encoder
+Anima is a model by Circlestone Labs using a Qwen3-0.6B text encoder
 and the Qwen-Image VAE. Requires a recent sd-scripts checkout with
 Anima support (anima_train_network.py present).
 """
@@ -111,27 +111,80 @@ def _compute_image_hash(
     return hasher.hexdigest()[:16]
 
 
-def _get_accelerate_path(sd_scripts_path):
-    """Get the accelerate path for sd-scripts venv based on platform.
-    Checks both .venv (uv default) and venv (traditional) folders."""
-    venv_folders = [".venv", "venv"]
+def _resolve_launcher(sd_scripts_path, custom_python_exe=""):
+    """Resolve the command prefix used to launch accelerate.
 
-    for venv_folder in venv_folders:
+    Tries, in order:
+    1. custom_python_exe (accelerate binary next to it, else `python -m accelerate...`)
+    2. accelerate inside sd-scripts venv/.venv (uv and traditional layouts)
+    3. python inside sd-scripts venv/.venv via `-m accelerate.commands.launch`
+    4. accelerate on PATH (system-wide install, common on RunPod/containers)
+    5. the Python running ComfyUI via `-m accelerate.commands.launch`
+
+    Returns a complete launcher command prefix (e.g. ['accelerate', 'launch']
+    or ['python', '-m', 'accelerate.commands.launch']); the caller appends
+    the launch arguments and the training script.
+    """
+    import shutil as _shutil
+
+    def _accel_cmd_from_python(python_path):
+        return [python_path, "-m", "accelerate.commands.launch"]
+
+    # 1. Custom python exe
+    if custom_python_exe and custom_python_exe.strip():
+        custom_python = custom_python_exe.strip()
+        if not os.path.exists(custom_python):
+            raise FileNotFoundError(f"Custom python.exe not found at: {custom_python}")
+        venv_scripts_dir = os.path.dirname(custom_python)
         if sys.platform == "win32":
-            accel_path = os.path.join(
-                sd_scripts_path, venv_folder, "Scripts", "accelerate.exe"
-            )
+            accel = os.path.join(venv_scripts_dir, "accelerate.exe")
         else:
-            accel_path = os.path.join(sd_scripts_path, venv_folder, "bin", "accelerate")
+            accel = os.path.join(venv_scripts_dir, "accelerate")
+        if os.path.exists(accel):
+            return [accel, "launch"]
+        # Fall back to module invocation with the custom python
+        return _accel_cmd_from_python(custom_python)
 
-        if os.path.exists(accel_path):
-            return accel_path
+    # 2./3. sd-scripts venv layouts
+    for venv_folder in (".venv", "venv"):
+        if sys.platform == "win32":
+            bin_dir = os.path.join(sd_scripts_path, venv_folder, "Scripts")
+            accel = os.path.join(bin_dir, "accelerate.exe")
+            py = os.path.join(bin_dir, "python.exe")
+        else:
+            bin_dir = os.path.join(sd_scripts_path, venv_folder, "bin")
+            accel = os.path.join(bin_dir, "accelerate")
+            py = os.path.join(bin_dir, "python")
+        if os.path.exists(accel):
+            return [accel, "launch"]
+        if os.path.exists(py):
+            return _accel_cmd_from_python(py)
 
-    # Return traditional path for error messaging
-    if sys.platform == "win32":
-        return os.path.join(sd_scripts_path, "venv", "Scripts", "accelerate.exe")
-    else:
-        return os.path.join(sd_scripts_path, "venv", "bin", "accelerate")
+    # 4. accelerate on PATH (e.g. pip install into system python on RunPod)
+    accel_on_path = _shutil.which("accelerate")
+    if accel_on_path:
+        return [accel_on_path, "launch"]
+
+    # 5. Last resort: the Python running ComfyUI. Works when sd-scripts
+    # requirements were installed into the same environment as ComfyUI.
+    try:
+        import accelerate  # noqa: F401
+
+        print(
+            "[Anima LoRA] No venv/accelerate found - falling back to ComfyUI's own Python environment."
+        )
+        return _accel_cmd_from_python(sys.executable)
+    except ImportError:
+        pass
+
+    raise FileNotFoundError(
+        f"Could not find 'accelerate' anywhere.\n"
+        f"Checked: custom_python_exe, {sd_scripts_path}/venv and /.venv, system PATH, and ComfyUI's Python.\n"
+        f"Fix options:\n"
+        f"  - Install sd-scripts requirements into a venv inside the sd-scripts folder, OR\n"
+        f"  - pip install the sd-scripts requirements (incl. accelerate) into the Python that runs ComfyUI, OR\n"
+        f"  - Set custom_python_exe to the python binary of the environment where sd-scripts is installed."
+    )
 
 
 # Load config and cache on module import
@@ -290,6 +343,36 @@ class AnimaLoraTrainer:
                         "tooltip": "Also train LoRA on the LLM Adapter (Qwen3 -> T5 bridge). Uses a lowered adapter learning rate (5e-5) for stability. Off by default.",
                     },
                 ),
+                "save_every_n_epochs": (
+                    "INT",
+                    {
+                        "default": saved.get("save_every_n_epochs", 0),
+                        "min": 0,
+                        "max": 100,
+                        "step": 1,
+                        "tooltip": "Save an intermediate LoRA every N epochs (0 = off). NOTE: with few images one epoch is only a handful of steps, so this can produce MANY files - use save_last_n_epochs to limit, or prefer save_every_n_steps. Files: {name}-000001.safetensors etc. in the output folder.",
+                    },
+                ),
+                "save_last_n_epochs": (
+                    "INT",
+                    {
+                        "default": saved.get("save_last_n_epochs", 0),
+                        "min": 0,
+                        "max": 100,
+                        "step": 1,
+                        "tooltip": "Keep only the last N epoch checkpoints, older ones are deleted automatically (0 = keep all). Only used when save_every_n_epochs > 0.",
+                    },
+                ),
+                "save_every_n_steps": (
+                    "INT",
+                    {
+                        "default": saved.get("save_every_n_steps", 0),
+                        "min": 0,
+                        "max": 5000,
+                        "step": 10,
+                        "tooltip": "Save an intermediate LoRA every N steps (0 = off). Usually more practical than epochs for step-based training. Files: {name}-step00000100.safetensors etc. in the output folder.",
+                    },
+                ),
                 "keep_lora": (
                     "BOOLEAN",
                     {
@@ -385,6 +468,9 @@ class AnimaLoraTrainer:
         timestep_sampling="sigmoid",
         discrete_flow_shift=1.0,
         train_llm_adapter=False,
+        save_every_n_epochs=0,
+        save_last_n_epochs=0,
+        save_every_n_steps=0,
         keep_lora=True,
         output_name="MyAnimaLora",
         custom_python_exe="",
@@ -465,7 +551,7 @@ class AnimaLoraTrainer:
         num_images = len(folder_images) if use_folder_path else len(all_images)
         print(f"[Anima LoRA] Training with {num_images} image(s)")
         print(
-            f"[Anima LoRA] DiT: {ckpt_name} | VAE: {vae_name} | Qwen3: {text_encoder_name}"
+            f"[Anima LoRA] Checkpoint: {ckpt_name} | VAE: {vae_name} | Qwen3: {text_encoder_name}"
         )
 
         # Get VRAM preset settings
@@ -475,29 +561,10 @@ class AnimaLoraTrainer:
         # Validate paths
         train_script = os.path.join(sd_scripts_path, "anima_train_network.py")
 
-        # Use custom python exe if provided, otherwise detect from sd_scripts_path
-        if custom_python_exe and custom_python_exe.strip():
-            custom_python = custom_python_exe.strip()
-            if not os.path.exists(custom_python):
-                raise FileNotFoundError(
-                    f"Custom python.exe not found at: {custom_python}"
-                )
-            # Derive accelerate path from same directory as custom python
-            venv_scripts_dir = os.path.dirname(custom_python)
-            if sys.platform == "win32":
-                accelerate_path = os.path.join(venv_scripts_dir, "accelerate.exe")
-            else:
-                accelerate_path = os.path.join(venv_scripts_dir, "accelerate")
-            if not os.path.exists(accelerate_path):
-                raise FileNotFoundError(
-                    f"accelerate not found at: {accelerate_path} (expected in same directory as custom python)"
-                )
-        else:
-            accelerate_path = _get_accelerate_path(sd_scripts_path)
-            if not os.path.exists(accelerate_path):
-                raise FileNotFoundError(
-                    f"sd-scripts accelerate not found at: {accelerate_path}"
-                )
+        # Resolve the accelerate launcher (handles venv, system install,
+        # custom python, and ComfyUI's own environment as fallback)
+        launcher_cmd = _resolve_launcher(sd_scripts_path, custom_python_exe)
+        print(f"[Anima LoRA] Launcher: {' '.join(launcher_cmd)}")
 
         if not os.path.exists(train_script):
             raise FileNotFoundError(
@@ -505,7 +572,7 @@ class AnimaLoraTrainer:
                 f"Your sd-scripts installation may be too old. Update sd-scripts (main branch) to get Anima support."
             )
         if not ckpt_path or not os.path.exists(ckpt_path):
-            raise FileNotFoundError(f"Anima DiT model not found at: {ckpt_path}")
+            raise FileNotFoundError(f"Anima model not found at: {ckpt_path}")
         if not vae_path or not os.path.exists(vae_path):
             raise FileNotFoundError(f"Qwen-Image VAE not found at: {vae_path}")
         if not qwen3_path or not os.path.exists(qwen3_path):
@@ -529,6 +596,9 @@ class AnimaLoraTrainer:
             "timestep_sampling": timestep_sampling,
             "discrete_flow_shift": discrete_flow_shift,
             "train_llm_adapter": train_llm_adapter,
+            "save_every_n_epochs": save_every_n_epochs,
+            "save_last_n_epochs": save_last_n_epochs,
+            "save_every_n_steps": save_every_n_steps,
             "keep_lora": keep_lora,
             "output_name": output_name,
             "custom_python_exe": custom_python_exe,
@@ -662,6 +732,9 @@ class AnimaLoraTrainer:
                 train_llm_adapter=train_llm_adapter,
                 vae_chunk_size=preset["vae_chunk_size"],
                 vae_disable_cache=preset["vae_disable_cache"],
+                save_every_n_epochs=save_every_n_epochs,
+                save_last_n_epochs=save_last_n_epochs,
+                save_every_n_steps=save_every_n_steps,
             )
 
             config_path = os.path.join(temp_dir, "training_config.toml")
@@ -669,9 +742,7 @@ class AnimaLoraTrainer:
             print(f"[Anima LoRA] Config saved to {config_path}")
 
             # Build command
-            cmd = [
-                accelerate_path,
-                "launch",
+            cmd = launcher_cmd + [
                 "--num_cpu_threads_per_process=2",
                 train_script,
                 f"--config_file={config_path}",
@@ -719,22 +790,33 @@ class AnimaLoraTrainer:
 
             print(f"[Anima LoRA] Training completed!")
 
-            # Find the trained LoRA
+            # List intermediate checkpoints (epoch: {name}-000001, steps: {name}-step00000100)
+            checkpoint_files = sorted(
+                f
+                for f in os.listdir(output_folder)
+                if f.startswith(run_name + "-") and f.endswith(".safetensors")
+            )
+            if checkpoint_files:
+                print(
+                    f"[Anima LoRA] {len(checkpoint_files)} intermediate checkpoint(s) saved in: {output_folder}"
+                )
+                for f in checkpoint_files:
+                    print(f"[Anima LoRA]   - {f}")
+
+            # Find the trained LoRA (final file is exactly {run_name}.safetensors)
             if not os.path.exists(lora_output_path):
-                # Check for alternative naming
-                possible_files = [
-                    f
-                    for f in os.listdir(output_folder)
-                    if f.startswith(run_name) and f.endswith(".safetensors")
-                ]
-                if possible_files:
-                    lora_output_path = os.path.join(output_folder, possible_files[-1])
+                # Fall back to the newest checkpoint if the final file is missing
+                if checkpoint_files:
+                    lora_output_path = os.path.join(output_folder, checkpoint_files[-1])
+                    print(
+                        f"[Anima LoRA] Final file missing, using newest checkpoint instead."
+                    )
                 else:
                     raise FileNotFoundError(f"No LoRA file found in {output_folder}")
 
             print(f"[Anima LoRA] Found trained LoRA: {lora_output_path}")
             print(
-                f"[Anima LoRA] Note: DiT-only LoRAs load directly in ComfyUI. If you trained text encoder or "
+                f"[Anima LoRA] Note: LoRAs load directly in ComfyUI. If you trained text encoder or "
                 f"LLM adapter weights, convert with networks/convert_anima_lora_to_comfy.py from sd-scripts."
             )
 

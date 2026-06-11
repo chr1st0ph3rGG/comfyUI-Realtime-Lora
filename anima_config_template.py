@@ -34,6 +34,9 @@ def generate_anima_training_config(
     llm_adapter_lr: float = 0.00005,
     vae_chunk_size: int = 0,
     vae_disable_cache: bool = False,
+    save_every_n_epochs: int = 0,
+    save_every_n_steps: int = 0,
+    save_last_n_epochs: int = 0,
 ) -> str:
     """
     Generate a TOML config file for Anima LoRA training with sd-scripts.
@@ -103,6 +106,15 @@ seed = 42
         config += f"vae_chunk_size = {vae_chunk_size}\n"
     if vae_disable_cache:
         config += "vae_disable_cache = true\n"
+
+    # Intermediate checkpoint saving. Epoch files are saved into output_dir
+    # as {output_name}-{epoch:06d}.safetensors (steps: -step{:08d}).
+    if save_every_n_epochs and save_every_n_epochs > 0:
+        config += f"save_every_n_epochs = {save_every_n_epochs}\n"
+        if save_last_n_epochs and save_last_n_epochs > 0:
+            config += f"save_last_n_epochs = {save_last_n_epochs}\n"
+    if save_every_n_steps and save_every_n_steps > 0:
+        config += f"save_every_n_steps = {save_every_n_steps}\n"
 
     # LLM Adapter LoRA training (off by default). Lowering the adapter LR
     # improves stability per the sd-scripts Anima docs.
