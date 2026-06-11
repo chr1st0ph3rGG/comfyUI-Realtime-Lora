@@ -41,7 +41,7 @@ def _load_anima_config():
     global _anima_config
     if os.path.exists(_anima_config_file):
         try:
-            with open(_anima_config_file, 'r', encoding='utf-8') as f:
+            with open(_anima_config_file, "r", encoding="utf-8") as f:
                 _anima_config = json.load(f)
         except:
             _anima_config = {}
@@ -50,7 +50,7 @@ def _load_anima_config():
 def _save_anima_config():
     """Save Anima config to disk."""
     try:
-        with open(_anima_config_file, 'w', encoding='utf-8') as f:
+        with open(_anima_config_file, "w", encoding="utf-8") as f:
             json.dump(_anima_config, f, indent=2)
     except:
         pass
@@ -61,7 +61,7 @@ def _load_anima_cache():
     global _anima_lora_cache
     if os.path.exists(_anima_cache_file):
         try:
-            with open(_anima_cache_file, 'r', encoding='utf-8') as f:
+            with open(_anima_cache_file, "r", encoding="utf-8") as f:
                 _anima_lora_cache = json.load(f)
         except:
             _anima_lora_cache = {}
@@ -70,23 +70,32 @@ def _load_anima_cache():
 def _save_anima_cache():
     """Save Anima LoRA cache to disk."""
     try:
-        with open(_anima_cache_file, 'w', encoding='utf-8') as f:
+        with open(_anima_cache_file, "w", encoding="utf-8") as f:
             json.dump(_anima_lora_cache, f)
     except:
         pass
 
 
-def _compute_image_hash(images, captions, training_steps, learning_rate, lora_rank,
-                        vram_mode, output_name, extra="", use_folder_path=False):
+def _compute_image_hash(
+    images,
+    captions,
+    training_steps,
+    learning_rate,
+    lora_rank,
+    vram_mode,
+    output_name,
+    extra="",
+    use_folder_path=False,
+):
     """Compute a hash of all images, captions, and training parameters."""
     hasher = hashlib.sha256()
 
     if use_folder_path:
         # For folder paths, hash the file paths and modification times
         for img_path in images:
-            hasher.update(img_path.encode('utf-8'))
+            hasher.update(img_path.encode("utf-8"))
             if os.path.exists(img_path):
-                hasher.update(str(os.path.getmtime(img_path)).encode('utf-8'))
+                hasher.update(str(os.path.getmtime(img_path)).encode("utf-8"))
     else:
         # For tensor inputs, hash the image data
         for img_tensor in images:
@@ -97,7 +106,7 @@ def _compute_image_hash(images, captions, training_steps, learning_rate, lora_ra
     # Include all captions in hash
     captions_str = "|".join(captions)
     params_str = f"anima|{captions_str}|{training_steps}|{learning_rate}|{lora_rank}|{vram_mode}|{output_name}|{extra}|{len(images)}"
-    hasher.update(params_str.encode('utf-8'))
+    hasher.update(params_str.encode("utf-8"))
 
     return hasher.hexdigest()[:16]
 
@@ -108,8 +117,10 @@ def _get_accelerate_path(sd_scripts_path):
     venv_folders = [".venv", "venv"]
 
     for venv_folder in venv_folders:
-        if sys.platform == 'win32':
-            accel_path = os.path.join(sd_scripts_path, venv_folder, "Scripts", "accelerate.exe")
+        if sys.platform == "win32":
+            accel_path = os.path.join(
+                sd_scripts_path, venv_folder, "Scripts", "accelerate.exe"
+            )
         else:
             accel_path = os.path.join(sd_scripts_path, venv_folder, "bin", "accelerate")
 
@@ -117,7 +128,7 @@ def _get_accelerate_path(sd_scripts_path):
             return accel_path
 
     # Return traditional path for error messaging
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         return os.path.join(sd_scripts_path, "venv", "Scripts", "accelerate.exe")
     else:
         return os.path.join(sd_scripts_path, "venv", "bin", "accelerate")
@@ -139,15 +150,17 @@ class AnimaLoraTrainer:
     @classmethod
     def INPUT_TYPES(s):
         # Get saved settings or use defaults
-        if sys.platform == 'win32':
-            sd_scripts_fallback = 'S:\\Auto\\sd-scripts'
+        if sys.platform == "win32":
+            sd_scripts_fallback = "S:\\Auto\\sd-scripts"
         else:
-            sd_scripts_fallback = '~/sd-scripts'
+            sd_scripts_fallback = "~/sd-scripts"
 
-        saved = _anima_config.get('trainer_settings', {})
+        saved = _anima_config.get("trainer_settings", {})
 
         # Model dropdowns from ComfyUI folders
-        diffusion_models = folder_paths.get_filename_list("diffusion_models")
+        # Get list of checkpoints from ComfyUI
+        checkpoints = folder_paths.get_filename_list("checkpoints")
+
         vae_models = folder_paths.get_filename_list("vae")
         try:
             text_encoders = folder_paths.get_filename_list("text_encoders")
@@ -164,93 +177,178 @@ class AnimaLoraTrainer:
 
         return {
             "required": {
-                "inputcount": ("INT", {"default": 4, "min": 1, "max": 100, "step": 1,
-                    "tooltip": "Number of image inputs. Click 'Update inputs' button after changing."}),
-                "images_path": ("STRING", {
-                    "default": "",
-                    "tooltip": "Optional: Path to folder containing training images. If provided, images from this folder are used instead of image inputs. Caption .txt files with matching names are used if present."
-                }),
-                "sd_scripts_path": ("STRING", {
-                    "default": _anima_config.get('sd_scripts_path', sd_scripts_fallback),
-                    "tooltip": "Path to kohya sd-scripts installation. Must be a recent version with Anima support (anima_train_network.py)."
-                }),
-                "dit_name": (diffusion_models, {
-                    "tooltip": "Anima DiT model (.safetensors) from models/diffusion_models. ComfyUI format with 'net.' prefix is supported by sd-scripts."
-                }),
-                "vae_name": (vae_models, {
-                    "tooltip": "Qwen-Image VAE from models/vae (the official Anima weights use the Qwen-Image VAE)."
-                }),
-                "text_encoder_name": (te_list, {
-                    "tooltip": "Qwen3-0.6B text encoder (.safetensors) from models/text_encoders (or models/clip)."
-                }),
-                "caption": ("STRING", {
-                    "default": saved.get('caption', "anime illustration of subject"),
-                    "multiline": True,
-                    "tooltip": "Default caption for all images. Per-image caption inputs override this."
-                }),
-                "training_steps": ("INT", {
-                    "default": saved.get('training_steps', 500),
-                    "min": 10,
-                    "max": 5000,
-                    "step": 10,
-                    "tooltip": "Number of training steps. 500 is a good starting point. Increase for more images or complex subjects."
-                }),
-                "learning_rate": ("FLOAT", {
-                    "default": saved.get('learning_rate', 0.0001),
-                    "min": 0.00001,
-                    "max": 0.1,
-                    "step": 0.00001,
-                    "tooltip": "Learning rate. 1e-4 is the documented starting point for Anima (at alpha = rank consider lowering it)."
-                }),
-                "lora_rank": ("INT", {
-                    "default": saved.get('lora_rank', 16),
-                    "min": 4,
-                    "max": 128,
-                    "step": 4,
-                    "tooltip": "LoRA rank/dimension. 8-32 typical for Anima. Higher = more capacity but larger file and more VRAM."
-                }),
-                "vram_mode": (["Min (512px)", "Low (768px)", "Max (1024px)"], {
-                    "default": saved.get('vram_mode', "Low (768px)"),
-                    "tooltip": "VRAM optimization preset. Min/Low enable block swapping and VAE chunking to reduce VRAM usage."
-                }),
-                "timestep_sampling": (["sigmoid", "shift", "flux_shift", "uniform", "sigma"], {
-                    "default": saved.get('timestep_sampling', "sigmoid"),
-                    "tooltip": "Timestep sampling method for Rectified Flow training. 'sigmoid' is the recommended default."
-                }),
-                "discrete_flow_shift": ("FLOAT", {
-                    "default": saved.get('discrete_flow_shift', 1.0),
-                    "min": 0.1,
-                    "max": 10.0,
-                    "step": 0.1,
-                    "tooltip": "Discrete flow shift. Only used when timestep_sampling is 'shift'. Default 1.0."
-                }),
-                "train_llm_adapter": ("BOOLEAN", {
-                    "default": saved.get('train_llm_adapter', False),
-                    "tooltip": "Also train LoRA on the LLM Adapter (Qwen3 -> T5 bridge). Uses a lowered adapter learning rate (5e-5) for stability. Off by default."
-                }),
-                "keep_lora": ("BOOLEAN", {
-                    "default": saved.get('keep_lora', True),
-                    "tooltip": "If True, keeps the trained LoRA file."
-                }),
-                "output_name": ("STRING", {
-                    "default": saved.get('output_name', "MyAnimaLora"),
-                    "tooltip": "Custom name for the output LoRA. Timestamp will be appended."
-                }),
-                "custom_python_exe": ("STRING", {
-                    "default": saved.get('custom_python_exe', ""),
-                    "tooltip": "Advanced: Optionally enter the full path to a custom python.exe (e.g. C:\\my-venv\\Scripts\\python.exe). If empty, uses the venv inside sd_scripts_path. The sd_scripts_path field is still required for locating training scripts."
-                }),
+                "inputcount": (
+                    "INT",
+                    {
+                        "default": 4,
+                        "min": 1,
+                        "max": 100,
+                        "step": 1,
+                        "tooltip": "Number of image inputs. Click 'Update inputs' button after changing.",
+                    },
+                ),
+                "images_path": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "tooltip": "Optional: Path to folder containing training images. If provided, images from this folder are used instead of image inputs. Caption .txt files with matching names are used if present.",
+                    },
+                ),
+                "sd_scripts_path": (
+                    "STRING",
+                    {
+                        "default": _anima_config.get(
+                            "sd_scripts_path", sd_scripts_fallback
+                        ),
+                        "tooltip": "Path to kohya sd-scripts installation. Must be a recent version with Anima support (anima_train_network.py).",
+                    },
+                ),
+                "ckpt_name": (
+                    checkpoints,
+                    {"tooltip": "Anima model (.safetensors) from models/checkpoints."},
+                ),
+                "vae_name": (
+                    vae_models,
+                    {
+                        "tooltip": "Qwen-Image VAE from models/vae (the official Anima weights use the Qwen-Image VAE)."
+                    },
+                ),
+                "text_encoder_name": (
+                    te_list,
+                    {
+                        "tooltip": "Qwen3-0.6B text encoder (.safetensors) from models/text_encoders (or models/clip)."
+                    },
+                ),
+                "caption": (
+                    "STRING",
+                    {
+                        "default": saved.get(
+                            "caption", "anime illustration of subject"
+                        ),
+                        "multiline": True,
+                        "tooltip": "Default caption for all images. Per-image caption inputs override this.",
+                    },
+                ),
+                "training_steps": (
+                    "INT",
+                    {
+                        "default": saved.get("training_steps", 500),
+                        "min": 10,
+                        "max": 5000,
+                        "step": 10,
+                        "tooltip": "Number of training steps. 500 is a good starting point. Increase for more images or complex subjects.",
+                    },
+                ),
+                "learning_rate": (
+                    "FLOAT",
+                    {
+                        "default": saved.get("learning_rate", 0.0001),
+                        "min": 0.00001,
+                        "max": 0.1,
+                        "step": 0.00001,
+                        "tooltip": "Learning rate. 1e-4 is the documented starting point for Anima (at alpha = rank consider lowering it).",
+                    },
+                ),
+                "lora_rank": (
+                    "INT",
+                    {
+                        "default": saved.get("lora_rank", 16),
+                        "min": 4,
+                        "max": 128,
+                        "step": 4,
+                        "tooltip": "LoRA rank/dimension. 8-32 typical for Anima. Higher = more capacity but larger file and more VRAM.",
+                    },
+                ),
+                "vram_mode": (
+                    ["Min (512px)", "Low (768px)", "Max (1024px)"],
+                    {
+                        "default": saved.get("vram_mode", "Low (768px)"),
+                        "tooltip": "VRAM optimization preset. Min/Low enable block swapping and VAE chunking to reduce VRAM usage.",
+                    },
+                ),
+                "timestep_sampling": (
+                    ["sigmoid", "shift", "flux_shift", "uniform", "sigma"],
+                    {
+                        "default": saved.get("timestep_sampling", "sigmoid"),
+                        "tooltip": "Timestep sampling method for Rectified Flow training. 'sigmoid' is the recommended default.",
+                    },
+                ),
+                "discrete_flow_shift": (
+                    "FLOAT",
+                    {
+                        "default": saved.get("discrete_flow_shift", 1.0),
+                        "min": 0.1,
+                        "max": 10.0,
+                        "step": 0.1,
+                        "tooltip": "Discrete flow shift. Only used when timestep_sampling is 'shift'. Default 1.0.",
+                    },
+                ),
+                "train_llm_adapter": (
+                    "BOOLEAN",
+                    {
+                        "default": saved.get("train_llm_adapter", False),
+                        "tooltip": "Also train LoRA on the LLM Adapter (Qwen3 -> T5 bridge). Uses a lowered adapter learning rate (5e-5) for stability. Off by default.",
+                    },
+                ),
+                "keep_lora": (
+                    "BOOLEAN",
+                    {
+                        "default": saved.get("keep_lora", True),
+                        "tooltip": "If True, keeps the trained LoRA file.",
+                    },
+                ),
+                "output_name": (
+                    "STRING",
+                    {
+                        "default": saved.get("output_name", "MyAnimaLora"),
+                        "tooltip": "Custom name for the output LoRA. Timestamp will be appended.",
+                    },
+                ),
+                "custom_python_exe": (
+                    "STRING",
+                    {
+                        "default": saved.get("custom_python_exe", ""),
+                        "tooltip": "Advanced: Optionally enter the full path to a custom python.exe (e.g. C:\\my-venv\\Scripts\\python.exe). If empty, uses the venv inside sd_scripts_path. The sd_scripts_path field is still required for locating training scripts.",
+                    },
+                ),
             },
             "optional": {
-                "image_1": ("IMAGE", {"tooltip": "Training image (not needed if images_path is set)."}),
-                "caption_1": ("STRING", {"forceInput": True, "tooltip": "Caption for image_1. Overrides default caption."}),
+                "image_1": (
+                    "IMAGE",
+                    {"tooltip": "Training image (not needed if images_path is set)."},
+                ),
+                "caption_1": (
+                    "STRING",
+                    {
+                        "forceInput": True,
+                        "tooltip": "Caption for image_1. Overrides default caption.",
+                    },
+                ),
                 "image_2": ("IMAGE", {"tooltip": "Training image."}),
-                "caption_2": ("STRING", {"forceInput": True, "tooltip": "Caption for image_2. Overrides default caption."}),
+                "caption_2": (
+                    "STRING",
+                    {
+                        "forceInput": True,
+                        "tooltip": "Caption for image_2. Overrides default caption.",
+                    },
+                ),
                 "image_3": ("IMAGE", {"tooltip": "Training image."}),
-                "caption_3": ("STRING", {"forceInput": True, "tooltip": "Caption for image_3. Overrides default caption."}),
+                "caption_3": (
+                    "STRING",
+                    {
+                        "forceInput": True,
+                        "tooltip": "Caption for image_3. Overrides default caption.",
+                    },
+                ),
                 "image_4": ("IMAGE", {"tooltip": "Training image."}),
-                "caption_4": ("STRING", {"forceInput": True, "tooltip": "Caption for image_4. Overrides default caption."}),
-            }
+                "caption_4": (
+                    "STRING",
+                    {
+                        "forceInput": True,
+                        "tooltip": "Caption for image_4. Overrides default caption.",
+                    },
+                ),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -276,7 +374,7 @@ class AnimaLoraTrainer:
         inputcount,
         images_path,
         sd_scripts_path,
-        dit_name,
+        ckpt_name,
         vae_name,
         text_encoder_name,
         caption,
@@ -291,13 +389,13 @@ class AnimaLoraTrainer:
         output_name="MyAnimaLora",
         custom_python_exe="",
         image_1=None,
-        **kwargs
+        **kwargs,
     ):
         global _anima_lora_cache
 
         # Resolve model paths
         sd_scripts_path = os.path.expanduser(sd_scripts_path.strip())
-        dit_path = folder_paths.get_full_path("diffusion_models", dit_name)
+        ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
         vae_path = folder_paths.get_full_path("vae", vae_name)
         qwen3_path = self._resolve_text_encoder_path(text_encoder_name)
 
@@ -310,7 +408,7 @@ class AnimaLoraTrainer:
             images_path = os.path.expanduser(images_path.strip())
             if os.path.isdir(images_path):
                 # Find all image files in the folder
-                image_extensions = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
+                image_extensions = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
                 for filename in sorted(os.listdir(images_path)):
                     if filename.lower().endswith(image_extensions):
                         img_path = os.path.join(images_path, filename)
@@ -320,18 +418,24 @@ class AnimaLoraTrainer:
                         base_name = os.path.splitext(filename)[0]
                         caption_file = os.path.join(images_path, f"{base_name}.txt")
                         if os.path.exists(caption_file):
-                            with open(caption_file, 'r', encoding='utf-8') as f:
+                            with open(caption_file, "r", encoding="utf-8") as f:
                                 folder_captions.append(f.read().strip())
                         else:
                             folder_captions.append(caption)  # Use default caption
 
                 if folder_images:
                     use_folder_path = True
-                    print(f"[Anima LoRA] Using {len(folder_images)} images from folder: {images_path}")
+                    print(
+                        f"[Anima LoRA] Using {len(folder_images)} images from folder: {images_path}"
+                    )
                 else:
-                    print(f"[Anima LoRA] No images found in folder: {images_path}, falling back to inputs")
+                    print(
+                        f"[Anima LoRA] No images found in folder: {images_path}, falling back to inputs"
+                    )
             else:
-                print(f"[Anima LoRA] Invalid folder path: {images_path}, falling back to inputs")
+                print(
+                    f"[Anima LoRA] Invalid folder path: {images_path}, falling back to inputs"
+                )
 
         if not use_folder_path:
             # Collect all images and captions from inputs
@@ -354,11 +458,15 @@ class AnimaLoraTrainer:
                     all_captions.append(cap if cap else caption)
 
             if not all_images:
-                raise ValueError("No images provided. Either set images_path to a folder containing images, or connect at least one image input.")
+                raise ValueError(
+                    "No images provided. Either set images_path to a folder containing images, or connect at least one image input."
+                )
 
         num_images = len(folder_images) if use_folder_path else len(all_images)
         print(f"[Anima LoRA] Training with {num_images} image(s)")
-        print(f"[Anima LoRA] DiT: {dit_name} | VAE: {vae_name} | Qwen3: {text_encoder_name}")
+        print(
+            f"[Anima LoRA] DiT: {ckpt_name} | VAE: {vae_name} | Qwen3: {text_encoder_name}"
+        )
 
         # Get VRAM preset settings
         preset = ANIMA_VRAM_PRESETS.get(vram_mode, ANIMA_VRAM_PRESETS["Low (768px)"])
@@ -371,27 +479,33 @@ class AnimaLoraTrainer:
         if custom_python_exe and custom_python_exe.strip():
             custom_python = custom_python_exe.strip()
             if not os.path.exists(custom_python):
-                raise FileNotFoundError(f"Custom python.exe not found at: {custom_python}")
+                raise FileNotFoundError(
+                    f"Custom python.exe not found at: {custom_python}"
+                )
             # Derive accelerate path from same directory as custom python
             venv_scripts_dir = os.path.dirname(custom_python)
-            if sys.platform == 'win32':
+            if sys.platform == "win32":
                 accelerate_path = os.path.join(venv_scripts_dir, "accelerate.exe")
             else:
                 accelerate_path = os.path.join(venv_scripts_dir, "accelerate")
             if not os.path.exists(accelerate_path):
-                raise FileNotFoundError(f"accelerate not found at: {accelerate_path} (expected in same directory as custom python)")
+                raise FileNotFoundError(
+                    f"accelerate not found at: {accelerate_path} (expected in same directory as custom python)"
+                )
         else:
             accelerate_path = _get_accelerate_path(sd_scripts_path)
             if not os.path.exists(accelerate_path):
-                raise FileNotFoundError(f"sd-scripts accelerate not found at: {accelerate_path}")
+                raise FileNotFoundError(
+                    f"sd-scripts accelerate not found at: {accelerate_path}"
+                )
 
         if not os.path.exists(train_script):
             raise FileNotFoundError(
                 f"anima_train_network.py not found at: {train_script}\n"
                 f"Your sd-scripts installation may be too old. Update sd-scripts (main branch) to get Anima support."
             )
-        if not dit_path or not os.path.exists(dit_path):
-            raise FileNotFoundError(f"Anima DiT model not found at: {dit_path}")
+        if not ckpt_path or not os.path.exists(ckpt_path):
+            raise FileNotFoundError(f"Anima DiT model not found at: {ckpt_path}")
         if not vae_path or not os.path.exists(vae_path):
             raise FileNotFoundError(f"Qwen-Image VAE not found at: {vae_path}")
         if not qwen3_path or not os.path.exists(qwen3_path):
@@ -402,31 +516,53 @@ class AnimaLoraTrainer:
 
         # Save settings
         global _anima_config
-        _anima_config['sd_scripts_path'] = sd_scripts_path
-        _anima_config['trainer_settings'] = {
-            'dit_name': dit_name,
-            'vae_name': vae_name,
-            'text_encoder_name': text_encoder_name,
-            'caption': caption,
-            'training_steps': training_steps,
-            'learning_rate': learning_rate,
-            'lora_rank': lora_rank,
-            'vram_mode': vram_mode,
-            'timestep_sampling': timestep_sampling,
-            'discrete_flow_shift': discrete_flow_shift,
-            'train_llm_adapter': train_llm_adapter,
-            'keep_lora': keep_lora,
-            'output_name': output_name,
-            'custom_python_exe': custom_python_exe,
+        _anima_config["sd_scripts_path"] = sd_scripts_path
+        _anima_config["trainer_settings"] = {
+            "ckpt_name": ckpt_name,
+            "vae_name": vae_name,
+            "text_encoder_name": text_encoder_name,
+            "caption": caption,
+            "training_steps": training_steps,
+            "learning_rate": learning_rate,
+            "lora_rank": lora_rank,
+            "vram_mode": vram_mode,
+            "timestep_sampling": timestep_sampling,
+            "discrete_flow_shift": discrete_flow_shift,
+            "train_llm_adapter": train_llm_adapter,
+            "keep_lora": keep_lora,
+            "output_name": output_name,
+            "custom_python_exe": custom_python_exe,
         }
         _save_anima_config()
 
         # Compute hash for caching
-        extra = f"{dit_name}|{timestep_sampling}|{discrete_flow_shift}|{train_llm_adapter}"
+        extra = (
+            f"{ckpt_name}|{timestep_sampling}|{discrete_flow_shift}|{train_llm_adapter}"
+        )
         if use_folder_path:
-            image_hash = _compute_image_hash(folder_images, folder_captions, training_steps, learning_rate, lora_rank, vram_mode, output_name, extra=extra, use_folder_path=True)
+            image_hash = _compute_image_hash(
+                folder_images,
+                folder_captions,
+                training_steps,
+                learning_rate,
+                lora_rank,
+                vram_mode,
+                output_name,
+                extra=extra,
+                use_folder_path=True,
+            )
         else:
-            image_hash = _compute_image_hash(all_images, all_captions, training_steps, learning_rate, lora_rank, vram_mode, output_name, extra=extra, use_folder_path=False)
+            image_hash = _compute_image_hash(
+                all_images,
+                all_captions,
+                training_steps,
+                learning_rate,
+                lora_rank,
+                vram_mode,
+                output_name,
+                extra=extra,
+                use_folder_path=False,
+            )
 
         # Check cache
         if keep_lora and image_hash in _anima_lora_cache:
@@ -439,8 +575,10 @@ class AnimaLoraTrainer:
                 _save_anima_cache()
 
         # Generate run name with timestamp
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        run_name = f"{output_name}_{timestamp}" if output_name else f"anima_lora_{image_hash}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_name = (
+            f"{output_name}_{timestamp}" if output_name else f"anima_lora_{image_hash}"
+        )
 
         # Output folder
         output_folder = os.path.join(sd_scripts_path, "output")
@@ -450,7 +588,9 @@ class AnimaLoraTrainer:
         # Auto-increment if file somehow still exists (same second)
         if os.path.exists(lora_output_path):
             counter = 1
-            while os.path.exists(os.path.join(output_folder, f"{run_name}_{counter}.safetensors")):
+            while os.path.exists(
+                os.path.join(output_folder, f"{run_name}_{counter}.safetensors")
+            ):
                 counter += 1
             run_name = f"{run_name}_{counter}"
             lora_output_path = os.path.join(output_folder, f"{run_name}.safetensors")
@@ -458,20 +598,26 @@ class AnimaLoraTrainer:
 
         # Create temp directory for images
         temp_dir = tempfile.mkdtemp(prefix="comfy_anima_lora_")
-        image_folder = os.path.join(temp_dir, "1_subject")  # sd-scripts format: repeats_class
+        image_folder = os.path.join(
+            temp_dir, "1_subject"
+        )  # sd-scripts format: repeats_class
         os.makedirs(image_folder, exist_ok=True)
 
         try:
             # Save images with captions
             if use_folder_path:
                 # Copy images from folder and create caption files
-                for idx, (src_path, cap) in enumerate(zip(folder_images, folder_captions)):
+                for idx, (src_path, cap) in enumerate(
+                    zip(folder_images, folder_captions)
+                ):
                     ext = os.path.splitext(src_path)[1]
-                    dest_path = os.path.join(image_folder, f"image_{idx+1:03d}{ext}")
+                    dest_path = os.path.join(image_folder, f"image_{idx + 1:03d}{ext}")
                     shutil.copy2(src_path, dest_path)
 
-                    caption_path = os.path.join(image_folder, f"image_{idx+1:03d}.txt")
-                    with open(caption_path, 'w', encoding='utf-8') as f:
+                    caption_path = os.path.join(
+                        image_folder, f"image_{idx + 1:03d}.txt"
+                    )
+                    with open(caption_path, "w", encoding="utf-8") as f:
                         f.write(cap)
             else:
                 # Save tensor images
@@ -480,11 +626,13 @@ class AnimaLoraTrainer:
                     img_np = (img_data.cpu().numpy() * 255).astype(np.uint8)
                     img_pil = Image.fromarray(img_np)
 
-                    image_path = os.path.join(image_folder, f"image_{idx+1:03d}.png")
+                    image_path = os.path.join(image_folder, f"image_{idx + 1:03d}.png")
                     img_pil.save(image_path, "PNG")
 
-                    caption_path = os.path.join(image_folder, f"image_{idx+1:03d}.txt")
-                    with open(caption_path, 'w', encoding='utf-8') as f:
+                    caption_path = os.path.join(
+                        image_folder, f"image_{idx + 1:03d}.txt"
+                    )
+                    with open(caption_path, "w", encoding="utf-8") as f:
                         f.write(all_captions[idx])
 
             print(f"[Anima LoRA] Saved {num_images} images to {image_folder}")
@@ -494,26 +642,26 @@ class AnimaLoraTrainer:
                 name=run_name,
                 image_folder=temp_dir,  # Parent of the class folder
                 output_folder=output_folder,
-                dit_path=dit_path,
+                ckpt_path=ckpt_path,
                 qwen3_path=qwen3_path,
                 vae_path=vae_path,
                 steps=training_steps,
                 learning_rate=learning_rate,
                 lora_rank=lora_rank,
                 lora_alpha=lora_rank,  # alpha = rank for full strength training
-                resolution=preset['resolution'],
-                batch_size=preset['batch_size'],
-                optimizer=preset['optimizer'],
-                mixed_precision=preset['mixed_precision'],
-                gradient_checkpointing=preset['gradient_checkpointing'],
-                cache_latents=preset['cache_latents'],
-                cache_text_encoder_outputs=preset['cache_text_encoder_outputs'],
-                blocks_to_swap=preset['blocks_to_swap'],
+                resolution=preset["resolution"],
+                batch_size=preset["batch_size"],
+                optimizer=preset["optimizer"],
+                mixed_precision=preset["mixed_precision"],
+                gradient_checkpointing=preset["gradient_checkpointing"],
+                cache_latents=preset["cache_latents"],
+                cache_text_encoder_outputs=preset["cache_text_encoder_outputs"],
+                blocks_to_swap=preset["blocks_to_swap"],
                 timestep_sampling=timestep_sampling,
                 discrete_flow_shift=discrete_flow_shift,
                 train_llm_adapter=train_llm_adapter,
-                vae_chunk_size=preset['vae_chunk_size'],
-                vae_disable_cache=preset['vae_disable_cache'],
+                vae_chunk_size=preset["vae_chunk_size"],
+                vae_disable_cache=preset["vae_disable_cache"],
             )
 
             config_path = os.path.join(temp_dir, "training_config.toml")
@@ -530,25 +678,27 @@ class AnimaLoraTrainer:
             ]
 
             print(f"[Anima LoRA] Starting training: {run_name}")
-            print(f"[Anima LoRA] Images: {num_images}, Steps: {training_steps}, LR: {learning_rate}, Rank: {lora_rank}")
+            print(
+                f"[Anima LoRA] Images: {num_images}, Steps: {training_steps}, LR: {learning_rate}, Rank: {lora_rank}"
+            )
 
             # Run training
             startupinfo = None
-            if sys.platform == 'win32':
+            if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
             # Set UTF-8 encoding for subprocess to handle Japanese text in sd-scripts
             env = os.environ.copy()
-            env['PYTHONIOENCODING'] = 'utf-8'
+            env["PYTHONIOENCODING"] = "utf-8"
 
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                encoding='utf-8',
-                errors='replace',
+                encoding="utf-8",
+                errors="replace",
                 cwd=sd_scripts_path,
                 startupinfo=startupinfo,
                 env=env,
@@ -563,22 +713,30 @@ class AnimaLoraTrainer:
             process.wait()
 
             if process.returncode != 0:
-                raise RuntimeError(f"sd-scripts Anima training failed with code {process.returncode}")
+                raise RuntimeError(
+                    f"sd-scripts Anima training failed with code {process.returncode}"
+                )
 
             print(f"[Anima LoRA] Training completed!")
 
             # Find the trained LoRA
             if not os.path.exists(lora_output_path):
                 # Check for alternative naming
-                possible_files = [f for f in os.listdir(output_folder) if f.startswith(run_name) and f.endswith('.safetensors')]
+                possible_files = [
+                    f
+                    for f in os.listdir(output_folder)
+                    if f.startswith(run_name) and f.endswith(".safetensors")
+                ]
                 if possible_files:
                     lora_output_path = os.path.join(output_folder, possible_files[-1])
                 else:
                     raise FileNotFoundError(f"No LoRA file found in {output_folder}")
 
             print(f"[Anima LoRA] Found trained LoRA: {lora_output_path}")
-            print(f"[Anima LoRA] Note: DiT-only LoRAs load directly in ComfyUI. If you trained text encoder or "
-                  f"LLM adapter weights, convert with networks/convert_anima_lora_to_comfy.py from sd-scripts.")
+            print(
+                f"[Anima LoRA] Note: DiT-only LoRAs load directly in ComfyUI. If you trained text encoder or "
+                f"LLM adapter weights, convert with networks/convert_anima_lora_to_comfy.py from sd-scripts."
+            )
 
             # Handle caching
             if keep_lora:
