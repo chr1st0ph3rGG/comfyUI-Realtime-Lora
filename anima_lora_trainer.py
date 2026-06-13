@@ -265,7 +265,7 @@ class AnimaLoraTrainer:
                 "diffusion_model_name": (
                     diffusion_models,
                     {
-                        "tooltip": "Anima model (.safetensors) from models/diffusion_models."
+                        "tooltip": "Anima model (.safetensors) from models/diffusion_models or models/checkpoints."
                     },
                 ),
                 "vae_name": (
@@ -492,6 +492,12 @@ class AnimaLoraTrainer:
         diffusion_model_name_path = folder_paths.get_full_path(
             "diffusion_models", diffusion_model_name
         ) or folder_paths.get_full_path("checkpoints", diffusion_model_name)
+        if not diffusion_model_name_path or not os.path.exists(
+            diffusion_model_name_path
+        ):
+            raise FileNotFoundError(
+                f"Anima DiT not found in diffusion_models or checkpoints: {diffusion_model_name}"
+            )
         vae_path = folder_paths.get_full_path("vae", vae_name)
         qwen3_path = self._resolve_text_encoder_path(text_encoder_name)
 
